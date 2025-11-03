@@ -1,6 +1,15 @@
-import 'package:flutter/material.dart';
+import 'dart:ui' as ui;
+import 'dart:io' show File;
+import 'dart:html' as html; // Change to 'package:web/web.dart' as html
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/rendering.dart';
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:flutter/services.dart';
 
 void main() {
   runApp(const MyApp());
@@ -46,7 +55,157 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   double _currentSliderValue = 256;
-  String message = 'Hello, World';
+  String _qrData = "";
+  Color _foregroundColor = Colors.indigo;
+  Color _backgroundColor = Colors.white;
+  File? _logoImage;
+  Uint8List? _webImageBytes;
+
+  final TextEditingController _contentController = TextEditingController();
+  final TextEditingController _smsNumberController = TextEditingController();
+  final TextEditingController _wifiController = TextEditingController();
+  final GlobalKey qrKey = GlobalKey();
+
+  void _updateQRData() {
+    setState(() {
+      if (_wifiController.text.isNotEmpty) {
+        _qrData = _wifiController.text;
+      } else if (_smsNumberController.text.isNotEmpty) {
+        _qrData = "sms:${_smsNumberController.text}";
+      } else {
+        _qrData = _contentController.text;
+      }
+    });
+  }
+
+  void _applyTemplate(String type) {
+    setState(() {
+      switch (type) {
+        case 'url':
+          _contentController.text = "https://";
+          _qrData = _contentController.text;
+          break;
+        case 'email':
+          _contentController.text = "mailto:example@email.com";
+          _qrData = _contentController.text;
+          break;
+        case 'wifi':
+          _wifiController.text = "WIFI:T:WPA;S:MySSID;P:mypassword;;";
+          _qrData = _wifiController.text;
+          break;
+        case 'sms':
+          _smsNumberController.text = "+1234567890";
+          _qrData = "sms:${_smsNumberController.text}?body=Hello";
+          break;
+      }
+    });
+  }
+
+  Future<void> _pickLogoImage() async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? pickedFile = await picker.pickImage(
+      source: ImageSource.gallery,
+    );
+
+    if (pickedFile == null) return;
+
+    if (kIsWeb) {
+      final bytes = await pickedFile.readAsBytes();
+      setState(() {
+        _webImageBytes = bytes;
+      });
+    } else {
+      setState(() {
+        _logoImage = File(pickedFile.path);
+      });
+    }
+  }
+
+  Future<void> _exportQrAsPng() async {
+    try {
+      RenderRepaintBoundary boundary =
+          qrKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
+
+      ui.Image image = await boundary.toImage(pixelRatio: 3.0);
+      ByteData? byteData = await image.toByteData(
+        format: ui.ImageByteFormat.png,
+      );
+      Uint8List pngBytes = byteData!.buffer.asUint8List();
+
+      if (kIsWeb) {
+        final blob = html.Blob([pngBytes]);
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        final anchor = html.AnchorElement(href: url)
+          ..setAttribute("download", "qr_code.png")
+          ..click();
+        html.Url.revokeObjectUrl(url);
+      } else {
+        final directory = await getApplicationDocumentsDirectory();
+        final file = File('${directory.path}/qr_code.png');
+        await file.writeAsBytes(pngBytes);
+        // await Share.shareXFiles([XFile(file.path)], text: 'My QR Code');
+        await SharePlus.instance.share(
+          ShareParams(text: 'My QR Code', files: [XFile(file.path)]),
+        );
+      }
+    } catch (e) {
+      debugPrint("Error exporting PNG: $e");
+    }
+  }
+
+  Future<void> _exportQrAsSvg() async {
+    try {
+      final qrCode = QrCode.fromData(
+        data: _qrData.isEmpty ? " " : _qrData,
+        errorCorrectLevel: QrErrorCorrectLevel.M,
+      );
+      final qrImage = QrImage(qrCode);
+      final size = qrImage.moduleCount;
+      final double scale = 10;
+      final buffer = StringBuffer();
+      buffer.writeln(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="${size * scale}" height="${size * scale}" viewBox="0 0 $size $size">',
+      );
+      buffer.writeln(
+        '<rect width="100%" height="100%" fill="#${_backgroundColor.value.toRadixString(16).padLeft(8, '0').substring(2)}"/>',
+      );
+      buffer.writeln(
+        '<path fill="#${_foregroundColor.value.toRadixString(16).padLeft(8, '0').substring(2)}" d="',
+      );
+
+      for (int y = 0; y < size; y++) {
+        for (int x = 0; x < size; x++) {
+          if (qrImage.isDark(y, x)) {
+            buffer.write('M$x,$y, h1v1h-1z ');
+          }
+        }
+      }
+
+      buffer.writeln('"/>');
+      buffer.writeln('</svg>');
+      final svgString = buffer.toString();
+
+      final bytes = Uint8List.fromList(svgString.codeUnits);
+
+      if (kIsWeb) {
+        final blob = html.Blob([bytes], 'image/svg+xml');
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        final anchor = html.AnchorElement(href: url)
+          ..setAttribute('download', 'qr_code.svg')
+          ..click();
+        html.Url.revokeObjectUrl(url);
+      } else {
+        final directory = await getApplicationDocumentsDirectory();
+        final file = File('${directory.path}/qr_code.svg');
+        await file.writeAsBytes(bytes);
+        await SharePlus.instance.share(
+          ShareParams(text: 'My QR Code SVG', files: [XFile(file.path)]),
+        );
+      }
+    } catch (e) {
+      debugPrint("Error exporting SVG: $e");
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -164,20 +323,28 @@ class _MyHomePageState extends State<MyHomePage> {
                 ColorPickerWidget(
                   title: "Foreground",
                   initialColor: Colors.indigo,
-                  onColorChanged: (color) {},
+                  onColorChanged: (Color color) {
+                    setState(() {
+                      _foregroundColor = color;
+                    });
+                  },
                 ),
                 ColorPickerWidget(
                   title: "Background",
                   initialColor: Colors.white,
-                  onColorChanged: (color) {},
+                  onColorChanged: (Color color) {
+                    setState(() {
+                      _backgroundColor = color;
+                    });
+                  },
                 ),
               ],
             ),
             const SizedBox(height: 16),
             FilledButton.icon(
-              onPressed: () {},
               icon: const Icon(Icons.upload),
               label: const Text("Upload Logo"),
+              onPressed: _pickLogoImage,
             ),
           ],
         ),
@@ -191,21 +358,31 @@ class _MyHomePageState extends State<MyHomePage> {
       child: Column(
         children: [
           TextFormField(
+            controller: _contentController,
             decoration: const InputDecoration(labelText: "Content"),
-            initialValue: message,
+            onChanged: (_) => _updateQRData(),
           ),
           const SizedBox(height: 12),
           TextFormField(
+            controller: _smsNumberController,
             decoration: const InputDecoration(labelText: "SMS Number"),
+            onChanged: (_) => _updateQRData(),
           ),
           const SizedBox(height: 12),
           Wrap(
             spacing: 8,
             children: [
-              FilledButton(onPressed: () {}, child: const Text("URL Template")),
               FilledButton(
-                onPressed: () {},
+                child: const Text("URL Template"),
+                onPressed: () => _applyTemplate('url'),
+              ),
+              FilledButton(
                 child: const Text("Email Template"),
+                onPressed: () => _applyTemplate('email'),
+              ),
+              FilledButton(
+                child: const Text("SMS Template"),
+                onPressed: () => _applyTemplate('sms'),
               ),
             ],
           ),
@@ -220,10 +397,15 @@ class _MyHomePageState extends State<MyHomePage> {
       child: Column(
         children: [
           TextFormField(
+            controller: _wifiController,
             decoration: const InputDecoration(labelText: "WiFi Configuration"),
+            onChanged: (_) => _updateQRData(),
           ),
           const SizedBox(height: 12),
-          FilledButton(onPressed: () {}, child: const Text("WiFi Template")),
+          FilledButton(
+            child: const Text("WiFi Template"),
+            onPressed: () => _applyTemplate('wifi'),
+          ),
         ],
       ),
     );
@@ -263,10 +445,33 @@ class _MyHomePageState extends State<MyHomePage> {
                     ),
                   ],
                 ),
-                child: QrImageView(
-                  data: message,
-                  version: QrVersions.auto,
-                  size: _currentSliderValue,
+                child: RepaintBoundary(
+                  key: qrKey,
+                  child: QrImageView(
+                    data: _qrData.isEmpty ? " " : _qrData,
+                    version: QrVersions.auto,
+                    size: _currentSliderValue,
+                    backgroundColor: _backgroundColor,
+                    eyeStyle: QrEyeStyle(
+                      eyeShape: QrEyeShape.square,
+                      color: _foregroundColor,
+                    ),
+                    dataModuleStyle: QrDataModuleStyle(
+                      dataModuleShape: QrDataModuleShape.square,
+                      color: _foregroundColor,
+                    ),
+                    embeddedImage: kIsWeb
+                        ? (_webImageBytes != null
+                              ? MemoryImage(_webImageBytes!)
+                              : null)
+                        : (_logoImage != null ? FileImage(_logoImage!) : null),
+                    embeddedImageStyle: QrEmbeddedImageStyle(
+                      size: Size(
+                        _currentSliderValue * 0.25,
+                        _currentSliderValue * 0.25,
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -277,14 +482,14 @@ class _MyHomePageState extends State<MyHomePage> {
               alignment: WrapAlignment.center,
               children: [
                 FilledButton.icon(
-                  onPressed: () {},
                   icon: const Icon(Icons.download),
                   label: const Text("PNG"),
+                  onPressed: _exportQrAsPng,
                 ),
                 FilledButton.icon(
-                  onPressed: () {},
                   icon: const Icon(Icons.download),
                   label: const Text("SVG"),
+                  onPressed: _exportQrAsSvg,
                 ),
                 FilledButton.icon(
                   onPressed: () {},
