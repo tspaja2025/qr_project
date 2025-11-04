@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 import 'dart:io' show File;
-import 'dart:html' as html; // Change to 'package:web/web.dart' as html
+import 'dart:js_interop';
+import 'package:web/web.dart' as web;
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/rendering.dart';
@@ -95,7 +96,7 @@ class _MyHomePageState extends State<MyHomePage> {
           break;
         case 'sms':
           _smsNumberController.text = "+1234567890";
-          _qrData = "sms:${_smsNumberController.text}?body=Hello";
+          _qrData = "sms:${_smsNumberController.text}";
           break;
       }
     });
@@ -121,6 +122,24 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
+  void _downloadWebFile(Uint8List bytes, String filename, String mimeType) {
+    final blob = web.Blob(
+      JSArray.from(bytes.toJS),
+      web.BlobPropertyBag(type: mimeType),
+    );
+    final url = web.URL.createObjectURL(blob);
+    final anchor = web.HTMLAnchorElement()
+      ..href = url
+      ..download = filename
+      ..style.display = 'none';
+
+    web.document.body?.append(anchor);
+    anchor.click();
+    anchor.remove();
+
+    web.URL.revokeObjectURL(url);
+  }
+
   Future<void> _exportQrAsPng() async {
     try {
       RenderRepaintBoundary boundary =
@@ -133,17 +152,11 @@ class _MyHomePageState extends State<MyHomePage> {
       Uint8List pngBytes = byteData!.buffer.asUint8List();
 
       if (kIsWeb) {
-        final blob = html.Blob([pngBytes]);
-        final url = html.Url.createObjectUrlFromBlob(blob);
-        final anchor = html.AnchorElement(href: url)
-          ..setAttribute("download", "qr_code.png")
-          ..click();
-        html.Url.revokeObjectUrl(url);
+        _downloadWebFile(pngBytes, "qr_code.png", "image/png");
       } else {
         final directory = await getApplicationDocumentsDirectory();
         final file = File('${directory.path}/qr_code.png');
         await file.writeAsBytes(pngBytes);
-        // await Share.shareXFiles([XFile(file.path)], text: 'My QR Code');
         await SharePlus.instance.share(
           ShareParams(text: 'My QR Code', files: [XFile(file.path)]),
         );
@@ -163,20 +176,25 @@ class _MyHomePageState extends State<MyHomePage> {
       final size = qrImage.moduleCount;
       final double scale = 10;
       final buffer = StringBuffer();
+
+      String colorToHex(Color color) {
+        final rgb = color.toARGB32();
+        final hex = rgb.toRadixString(16).padLeft(8, '0').substring(2);
+        return hex;
+      }
+
       buffer.writeln(
         '<svg xmlns="http://www.w3.org/2000/svg" width="${size * scale}" height="${size * scale}" viewBox="0 0 $size $size">',
       );
       buffer.writeln(
-        '<rect width="100%" height="100%" fill="#${_backgroundColor.value.toRadixString(16).padLeft(8, '0').substring(2)}"/>',
+        '<rect width="100%" height="100%" fill="#${colorToHex(_backgroundColor)}"/>',
       );
-      buffer.writeln(
-        '<path fill="#${_foregroundColor.value.toRadixString(16).padLeft(8, '0').substring(2)}" d="',
-      );
+      buffer.writeln('<path fill="#${colorToHex(_foregroundColor)}" d="');
 
       for (int y = 0; y < size; y++) {
         for (int x = 0; x < size; x++) {
           if (qrImage.isDark(y, x)) {
-            buffer.write('M$x,$y, h1v1h-1z ');
+            buffer.write('M$x,$y h1v1h-1z ');
           }
         }
       }
@@ -188,12 +206,7 @@ class _MyHomePageState extends State<MyHomePage> {
       final bytes = Uint8List.fromList(svgString.codeUnits);
 
       if (kIsWeb) {
-        final blob = html.Blob([bytes], 'image/svg+xml');
-        final url = html.Url.createObjectUrlFromBlob(blob);
-        final anchor = html.AnchorElement(href: url)
-          ..setAttribute('download', 'qr_code.svg')
-          ..click();
-        html.Url.revokeObjectUrl(url);
+        _downloadWebFile(bytes, "qr_code.svg", "image/svg+xml");
       } else {
         final directory = await getApplicationDocumentsDirectory();
         final file = File('${directory.path}/qr_code.svg');
@@ -204,6 +217,25 @@ class _MyHomePageState extends State<MyHomePage> {
       }
     } catch (e) {
       debugPrint("Error exporting SVG: $e");
+    }
+  }
+
+  void _showSuccessMessage() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('QR data copied to clipboard')),
+    );
+  }
+
+  void _showErrorMessage(String error) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+  }
+
+  Future<void> _copyToClipboard() async {
+    try {
+      await Clipboard.setData(ClipboardData(text: _qrData));
+      _showSuccessMessage();
+    } catch (e) {
+      _showErrorMessage("Failed to copy: $e");
     }
   }
 
@@ -475,7 +507,9 @@ class _MyHomePageState extends State<MyHomePage> {
                 ),
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 12),
+            _buildQRContentPreview(),
+            const SizedBox(height: 12),
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -492,11 +526,35 @@ class _MyHomePageState extends State<MyHomePage> {
                   onPressed: _exportQrAsSvg,
                 ),
                 FilledButton.icon(
-                  onPressed: () {},
                   icon: const Icon(Icons.copy),
                   label: const Text("Copy"),
+                  onPressed: _copyToClipboard,
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQRContentPreview() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Content Preview',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _qrData,
+              style: Theme.of(context).textTheme.bodySmall,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
@@ -518,10 +576,10 @@ class ColorPickerWidget extends StatefulWidget {
   });
 
   @override
-  _ColorPickerWidgetState createState() => _ColorPickerWidgetState();
+  ColorPickerWidgetState createState() => ColorPickerWidgetState();
 }
 
-class _ColorPickerWidgetState extends State<ColorPickerWidget> {
+class ColorPickerWidgetState extends State<ColorPickerWidget> {
   late Color _currentColor;
 
   @override
