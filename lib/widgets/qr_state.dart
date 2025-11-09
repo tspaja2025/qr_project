@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:qr_project/qr_services.dart';
+import 'package:qr_project/widgets/qr_services.dart';
 
 class QrState extends ChangeNotifier {
   String _qrData = " ";
