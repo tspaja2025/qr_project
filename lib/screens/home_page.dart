@@ -9,18 +9,15 @@ import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:qr_project/widgets/qr_services.dart';
 import 'package:qr_project/widgets/qr_state.dart';
-import 'package:provider/provider.dart';
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, required this.title});
-
-  final String title;
+  const HomePage({super.key});
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  State<HomePage> createState() => HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class HomePageState extends State<HomePage> {
   final QrState _qrState = QrState();
   final TextEditingController _contentController = TextEditingController();
   final TextEditingController _smsNumberController = TextEditingController();
@@ -247,48 +244,41 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final themeProvider = Provider.of<ThemeProvider>(context);
-
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Flutter QR Demo"),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        foregroundColor: Colors.white,
-        centerTitle: true,
-        actions: [
-          PopupMenuButton(
-            icon: Icon(Icons.light_mode),
-            tooltip: "Select a theme",
-            initialValue: selectedItem,
-            onSelected: (ThemeItem item) {
-              setState(() {
-                selectedItem = item;
-              });
-              themeProvider.setTheme(item);
-            },
-            itemBuilder: (BuildContext context) => [
-              const PopupMenuItem(value: ThemeItem.light, child: Text("Light")),
-              const PopupMenuItem(value: ThemeItem.dark, child: Text("Dark")),
-              const PopupMenuItem(
-                value: ThemeItem.system,
-                child: Text("System"),
-              ),
-            ],
-          ),
-        ],
-      ),
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final isWide = constraints.maxWidth > 900;
+          final isMobile = constraints.maxWidth < 600;
+          // final isTablet =
+          //     constraints.maxWidth >= 600 && constraints.maxWidth < 1024;
 
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Flex(
-              direction: isWide ? Axis.horizontal : Axis.vertical,
-              crossAxisAlignment: CrossAxisAlignment.start,
+          if (isMobile) {
+            return MobileLayout(
+              config: ConfigurationCard(
+                contentController: _contentController,
+                smsNumberController: _smsNumberController,
+                wifiController: _wifiController,
+                onUpdateQRData: _updateQRData,
+                applyTemplate: _applyTemplate,
+                pickLogoImage: _pickLogoImage,
+                confirmReset: _confirmReset,
+                qrState: _qrState,
+              ),
+              preview: PreviewCard(
+                exportQrAsPng: _exportQrAsPng,
+                exportQrAsSvg: _exportQrAsSvg,
+                copyToClipboard: _copyToClipboard,
+                qrState: _qrState,
+                qrKey: qrKey,
+              ),
+            );
+          }
+
+          return Padding(
+            padding: const .all(16),
+            child: Row(
+              crossAxisAlignment: .start,
               children: [
-                Flexible(
-                  flex: 1,
+                Expanded(
                   child: ConfigurationCard(
                     contentController: _contentController,
                     smsNumberController: _smsNumberController,
@@ -300,9 +290,8 @@ class _HomePageState extends State<HomePage> {
                     qrState: _qrState,
                   ),
                 ),
-                SizedBox(width: isWide ? 16 : 0, height: isWide ? 0 : 16),
-                Flexible(
-                  flex: 1,
+                const SizedBox(width: 16),
+                Expanded(
                   child: PreviewCard(
                     exportQrAsPng: _exportQrAsPng,
                     exportQrAsSvg: _exportQrAsSvg,
@@ -315,6 +304,44 @@ class _HomePageState extends State<HomePage> {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class MobileLayout extends StatefulWidget {
+  final Widget config;
+  final Widget preview;
+
+  const MobileLayout({super.key, required this.config, required this.preview});
+
+  @override
+  State<MobileLayout> createState() => MobileLayoutState();
+}
+
+class MobileLayoutState extends State<MobileLayout> {
+  int index = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 300),
+          child: SingleChildScrollView(
+            key: ValueKey(index),
+            padding: const .all(12),
+            child: index == 0 ? widget.config : widget.preview,
+          ),
+        ),
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: index,
+        onTap: (i) => setState(() => index = i),
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.tune), label: "Configure"),
+          BottomNavigationBarItem(icon: Icon(Icons.qr_code), label: "Preview"),
+        ],
       ),
     );
   }

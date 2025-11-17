@@ -26,63 +26,64 @@ class PreviewCardState extends State<PreviewCard> {
   @override
   Widget build(BuildContext context) {
     return Card(
-      elevation: 3,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: .circular(12)),
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            Text(
-              "Preview & Download",
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              "Your generated QR code will appear here.",
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 24),
+            Text("QR Preview", style: Theme.of(context).textTheme.titleMedium),
 
-            // QR Code Preview
+            const SizedBox(height: 16),
+
             Center(
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withAlpha(25),
-                      blurRadius: 6,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: Semantics(
-                  label: 'QR Code Preview',
-                  child: RepaintBoundary(
-                    key: widget.qrKey,
-                    child: _buildQrPreview(),
-                  ),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 300),
+                child: RepaintBoundary(
+                  key: widget.qrKey,
+                  child: _buildQrPreview(),
                 ),
               ),
             ),
 
-            // Logo Type Indicator
-            if (widget.qrState.hasLogo) ...[
-              const SizedBox(height: 12),
-              _buildLogoTypeIndicator(),
-            ],
-
-            // Content Preview
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             _buildQRContentPreview(),
+            const SizedBox(height: 16),
 
-            // Action Buttons
-            const SizedBox(height: 12),
-            _buildActionButtons(),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: [
+                FilledButton.icon(
+                  onPressed: widget.qrState.isExporting
+                      ? null
+                      : widget.exportQrAsPng,
+                  icon: widget.qrState.isExporting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.download),
+                  label: Text(
+                    widget.qrState.isExporting ? "Exporting…" : "PNG",
+                  ),
+                ),
+                FilledButton.icon(
+                  onPressed: widget.qrState.isExporting
+                      ? null
+                      : widget.exportQrAsSvg,
+                  icon: const Icon(Icons.download),
+                  label: const Text("SVG"),
+                ),
+                FilledButton.icon(
+                  onPressed: widget.copyToClipboard,
+                  icon: const Icon(Icons.copy),
+                  label: const Text("Copy"),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -121,36 +122,10 @@ class PreviewCardState extends State<PreviewCard> {
     );
   }
 
-  Widget _buildLogoTypeIndicator() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.green.withAlpha(38),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.check_circle, color: Colors.green[700], size: 18),
-          const SizedBox(width: 6),
-          Text(
-            widget.qrState.svgLogoString != null
-                ? "Vector Logo (SVG)"
-                : "Raster Logo",
-            style: TextStyle(
-              color: Colors.green[700],
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildQRContentPreview() {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const .all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -168,43 +143,6 @@ class PreviewCardState extends State<PreviewCard> {
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildActionButtons() {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      alignment: WrapAlignment.center,
-      children: [
-        FilledButton.icon(
-          icon: widget.qrState.isExporting
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.download),
-          label: Text(widget.qrState.isExporting ? "Exporting..." : "PNG"),
-          onPressed: widget.qrState.isExporting ? null : widget.exportQrAsPng,
-        ),
-        FilledButton.icon(
-          icon: widget.qrState.isExporting
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.download),
-          label: Text(widget.qrState.isExporting ? "Exporting..." : "SVG"),
-          onPressed: widget.qrState.isExporting ? null : widget.exportQrAsSvg,
-        ),
-        FilledButton.icon(
-          icon: const Icon(Icons.copy),
-          label: const Text("Copy"),
-          onPressed: widget.copyToClipboard,
-        ),
-      ],
     );
   }
 }
